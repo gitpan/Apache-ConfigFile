@@ -52,7 +52,7 @@ SYNOPSIS
         # In fact, even better you can "search" for one by specifying
         # an additional set of criteria to cmd_config(). To just get
         # the VirtualHost "docs.mydomain.com", for example, try:
- 
+     
         my $docs_svr = $ac->cmd_context(VirtualHost => '10.1.1.3',
                                         ServerName  => 'docs.mydomain.com');
         my $docs_base_dir = $docs_svr->cmd_config('DocumentRoot');
@@ -89,27 +89,35 @@ SYNOPSIS
         my %config = $self->data;
         warn "DEBUG: ", $self->dump, "\n";
 
-DESCRIPTION
-    This module parses the Apache httpd.conf, or any compatible config file,
-    and provides methods for you to access the values from the config file.
-    The above examples show basic usage of this module, which boils down to
-    reading a given config file and then using the "cmd_config()" and
-    "cmd_context()" functions to access its information.
+UNSUPPORTED
+    I am no longer supporting this module in any way, shape, or form, so it is truly provided "as-is". It has
+    some edge-case bugs which will not be fixed. It will work on 95+% of Apache config files.
 
-    By default, the config file is parsed more or less "verbatim", meaning
-    that directives are case-sensitive, variables are not interpolated, and
-    so forth. These features can be changed by options given to the "read()"
+    I believe some alternative modules, including Apache::Admin::Config and Config::ApacheFormat, are being
+    actively supported still, although this may or may not be true by the time you read this.
+
+    In case you care, the main reason I wrote this was to support Apache-like config files as a general case. But
+    it turns out the core `httpd.conf' is rife with special cases, and is just plain a pain in the ass.
+
+    If you would like to take over maintenance of this module, please contact me at `nate@wiger.org'
+
+DESCRIPTION
+    This module parses the Apache httpd.conf, or any compatible config file, and provides methods for you to
+    access the values from the config file. The above examples show basic usage of this module, which boils down
+    to reading a given config file and then using the `cmd_config()' and `cmd_context()' functions to access its
+    information.
+
+    By default, the config file is parsed more or less "verbatim", meaning that directives are case-sensitive,
+    variables are not interpolated, and so forth. These features can be changed by options given to the `read()'
     function (see below).
 
-    The "read()" function is the constructor, which reads in a configuration
-    file and returns an object with methods that can be used to access
-    directives from the file. The simplest usage is something like this:
+    The `read()' function is the constructor, which reads in a configuration file and returns an object with
+    methods that can be used to access directives from the file. The simplest usage is something like this:
 
         use Apache::ConfigFile;
         my $ac = Apache::ConfigFile->read("/path/to/httpd.conf");
 
-    Which would parse the Apache "httpd.conf" file and give you back an
-    "$ac" object with the following methods:
+    Which would parse the Apache `httpd.conf' file and give you back an `$ac' object with the following methods:
 
     cmd_config()
         Used to access individual configuration commands
@@ -118,16 +126,13 @@ DESCRIPTION
         Used to change the context of the commands you're accessing
 
     dir_config()
-        Used to access values set via the "PerlSetVar" command (like
-        "mod_perl")
+        Used to access values set via the `PerlSetVar' command (like `mod_perl')
 
-    For more examples of standard Apache usage, you should read the the
-    section on "SYNOPSIS" above or skip down to the the section on
-    "FUNCTIONS".
+    For more examples of standard Apache usage, you should read the the section on "/"SYNOPSIS" above or skip
+    down to the the section on "/"FUNCTIONS".
 
-    In addition to reading an Apache config file, this module provides some
-    options that allow the Apache syntax to be extended. This is useful if
-    you're writing your own application and want to use a config file
+    In addition to reading an Apache config file, this module provides some options that allow the Apache syntax
+    to be extended. This is useful if you're writing your own application and want to use a config file
     resembling Apache's.
 
         use Apache::ConfigFile;
@@ -138,8 +143,7 @@ DESCRIPTION
                         fix_booleans => 1
                  );
 
-    These options would allow us to write a custom config file looking like
-    this:
+    These options would allow us to write a custom config file looking like this:
 
         BaseDir    "/export"
         ImageDir   "$BaseDir/images"
@@ -160,45 +164,40 @@ DESCRIPTION
         # Note that case does not matter
         my $rel = $swcfg->cmd_context(release => 'sw7');
         my $ofn = $rel->cmd_config('bUiLdPaTh');
-    
+        
         # This is autoloading + fix_booleans
         unless ($rel->supported) {
             die "Sorry, that release is not supported";
         } 
 
-    There are several things to note. First, all our "cmd_" functions are
-    now case-insensitive, since we turned on the "ignore_case" flag (which
-    is off by default). Second, notice a couple things about our "unless"
-    statement. Since we specified "fix_booleans", the words "Yes", "True",
-    and "On" will be converted to "1" (true), and "No", "False", and "Off"
-    will become "0" (false). As such, we can use these directives in boolean
+    There are several things to note. First, all our `cmd_' functions are now case-insensitive, since we turned
+    on the `ignore_case' flag (which is off by default). Second, notice a couple things about our `unless'
+    statement. Since we specified `fix_booleans', the words "Yes", "True", and "On" will be converted to `1'
+    (true), and "No", "False", and "Off" will become `0' (false). As such, we can use these directives in boolean
     statements throughout our code.
 
-    In addition, since this module provides autoloading so that all config
-    commands are turned into functions, you can access values directly, as
-    shown by the statement "$rel->supported". This statement is equivalent
-    to the longer "$rel->cmd_config('supported')".
+    In addition, since this module provides autoloading so that all config commands are turned into functions,
+    you can access values directly, as shown by the statement `< $rel-'supported >>. This statement is equivalent
+    to the longer `< $rel-'cmd_config('supported') >>.
 
-    Finally, if you just wish to manually navigate the data structure (which
-    is a huge hash of hashes of arrays) without using the accessor
-    functions, you can return the thing verbatim:
+    Finally, if you just wish to manually navigate the data structure (which is a huge hash of hashes of arrays)
+    without using the accessor functions, you can return the thing verbatim:
 
         my %conf = $ac->data;
         print "Release is $conf{'release'}\n";
 
-    However, note that the internal representation is subject to change, so
-    using the accessor functions is recommended.
+    However, note that the internal representation is subject to change, so using the accessor functions is
+    recommended.
 
 FUNCTIONS
   read(filename)
 
   read(file => filename, opt => val, opt => val)
 
-    The "read()" function reads the configuration file specified and returns
-    an object with methods to access its directives. "read()" has two
-    calling forms. In the simplest version, you just specify a filename, and
-    a new "Apache::ConfigFile" object is returned. Or, if you want to
-    specify options, you specify each one as a key/value pair. For example:
+    The `read()' function reads the configuration file specified and returns an object with methods to access its
+    directives. `read()' has two calling forms. In the simplest version, you just specify a filename, and a new
+    `Apache::ConfigFile' object is returned. Or, if you want to specify options, you specify each one as a
+    key/value pair. For example:
 
        # keep default options
        my $ac = Apache::ConfigFile->read("httpd.conf");
@@ -211,54 +210,90 @@ FUNCTIONS
     The list of valid options is:
 
     file
-        Path to configuration file. If not provided then
-        "/usr/local/apache/conf/httpd.conf" is used by default.
+        Path to configuration file. If not provided then `/usr/local/apache/conf/httpd.conf' is used by default.
 
     ignore_case
-        If set to 1, then all directives will be case-insensitive and stored
-        in lowercase. Defaults to 0.
+        If set to 1, then all directives will be case-insensitive and stored in lowercase. Defaults to 0.
 
     fix_booleans
-        If set to 1, then the words "Yes", "True", and "On" will be
-        converted to "1" (true), and "No", "False", and "Off" will become
-        "0" (false). This allows you to easily use these types of directives
-        in if statements. Defaults to 0.
+        If set to 1, then the words "Yes", "True", and "On" will be converted to `1' (true), and "No", "False",
+        and "Off" will become `0' (false). This allows you to easily use these types of directives in if
+        statements. Defaults to 0.
 
     expand_vars
-        If set to 1, then you can reuse variables that you have defined
-        elsewhere in the config file by prefixing them with a "$". For
-        example:
+        If set to 1, then you can reuse variables that you have defined elsewhere in the config file by prefixing
+        them with a `$'. For example:
 
             BaseDir   "/export"
             HomeDir   "$BaseDir/home"
 
-        Currently, you can only reuse variables defined at the very
-        top-level. Variables defined within context blocks of any kind
-        cannot be reused.
+        Currently, you can only reuse variables defined at the very top-level. Variables defined within context
+        blocks of any kind cannot be reused.
 
     raise_error
         If set to 1, any type of error becomes fatal. Defaults to 0.
 
+    inherit_from
+        If set, then context blocks inherit from the specified default context. For example, say you have the
+        blocks:
+
+            <Category kitchen>
+                Name "Soup Kitchen"
+                Email "soup@kitchen.com"
+                Access all
+            </Category>
+
+            <Category tomato_soup>
+                Name "Tomato Soup"
+            </Category>
+
+        If you then specified:
+
+            ->read(..., inherit_from => 'kitchen');
+
+        Then all those variables that are not seen in the `tomato_soup' block would be filled in based on their
+        values from the `kitchen' block. So, `tomato_soup' would inherit `Email' and `Access' from `kitchen', but
+        would provide its own `Name'.
+
+        Note: In order for this to work, the block providing the inherited items MUST appear first, as shown
+        above.
+
+    root_directive
+        If set this specifies a directive other than RootDirective for relative path resolutions. For example:
+
+            ApplicationRoot /usr/local/etc
+
+            my $ac = Apache::ConfigFile->read(
+                             file => "/usr/local/etc/app.config",
+                             root_directive => 'ApplicationRoot'
+                     );
+
+        This will cause /usr/local/etc to be added to relative paths for includes, etc. With this additional
+        behavior, the term ServerRoot, as used elsewhere in this document, comes to mean any directive that is
+        specified via this option. Also note that the default value of this option is 'ServerRoot'.
+
+    server_root
+        This explicitly sets the ServerRoot for relative path resolutions for includes, etc. This option
+        overrides any ServerRoot values found in the config file.
+
   cmd_config(directive)
 
-    This is the meat-and-potatoes of the module; the method that lets you
-    access configuration directives from your file. Examples:
+    This is the meat-and-potatoes of the module; the method that lets you access configuration directives from
+    your file. Examples:
 
         my $server_name = $ac->cmd_config('ServerName');
         my $doc_root = $ac->cmd_config('DocumentRoot');
 
-    This is a fairly straightforward function. You just give it the name of
-    the directive you wish to access and you get its value back. Each time
-    you call it, you will get the value for the next available instance of
-    that variable. If called in a scalar context, you will just get the
-    first value, assumed to be the "key".
+    This is a fairly straightforward function. You just give it the name of the directive you wish to access and
+    you get its value back. Each time you call it, you will get the value for the next available instance of that
+    variable. If called in a scalar context, you will just get the first value, assumed to be the "key".
 
     What this means is that if you have a config file like this:
 
         ErrorDocument 404 /errors/404.cgi
         ErrorDocument 500 /errors/500.cgi
 
-    To get each line you would use a "while" loop:
+    To get each line you would use a `while' loop:
 
         while (my @line = $ac->cmd_config('ErrorDocument')) {
             print "For error $line[0] we're using $line[1]\n";
@@ -269,29 +304,16 @@ FUNCTIONS
         For error 404 we're using /errors/404.cgi
         For error 500 we're using /errors/500.cgi
 
-    Now, if you just wanted to get the error codes that were being handled,
-    you would still use a "while" loop but in a scalar context:
-
-        while (my $code = $ac->cmd_config('ErrorDocument')) {
-            print "We're handling $code\n";
-        }
-
-    Which should print:
-
-        We're handling 404
-        We're handling 500
-
     If you want more flexibility, read the following two functions.
 
   cmd_config_array(directive)
 
-    This returns the entire data structure for a given directive as an array
-    of arrays. So, you could get all the "ErrorDocument" configs by saying:
+    This returns the entire data structure for a given directive as an array of arrays. So, you could get all the
+    `ErrorDocument' configs by saying:
 
         my @errors = $ac->cmd_config_array('ErrorDocument');
 
-    Then, you would have to iterate over these yourself, since each element
-    is an array reference:
+    Then, you would have to iterate over these yourself, since each element is an array reference:
 
         for my $e (@errors) {
             print "Code is $e->[0] and script is $e->[1]\n";
@@ -306,16 +328,14 @@ FUNCTIONS
 
   cmd_config_hash(directive)
 
-    This is perhaps the most useful form. It returns a set of key/value
-    pairs where the key is the first element and the value is the rest of
-    the line. This is great for handling "FileTypeSuffix" or "AddHandler"
-    lines, for example:
+    This is perhaps the most useful form. It returns a set of key/value pairs where the key is the first element
+    and the value is the rest of the line. This is great for handling `FileTypeSuffix' or `AddHandler' lines, for
+    example:
 
         my %handler = $ac->cmd_config_hash('AddHandler');
 
-    This would return a hash where the keys would be the first field, such
-    as "cgi-script" or "server-parsed", and value is the remaining line as
-    an array reference.
+    This would return a hash where the keys would be the first field, such as `cgi-script' or `server-parsed',
+    and value is the remaining line as an array reference.
 
     As such, you could access a specific one as:
 
@@ -325,17 +345,15 @@ FUNCTIONS
 
         Suffixes for CGI scripts are: .cgi .pl
 
-    Note that you had to derefence the value inside of a "@{}" since the
-    value is an array reference. This is so that you can get a list of
-    values reliably. For example:
+    Note that you had to derefence the value inside of a `@{}' since the value is an array reference. This is so
+    that you can get a list of values reliably. For example:
 
         my %handler = $ac->cmd_config_hash('AddHandler');
         my @cgi_suffixes   = @{$handler{cgi-script}};
         my @shtml_suffixed = @{$handler{server-parsed}};
 
-    That way you get the proper values even in the case of embedded
-    whitespace. In addition, it allows you to define your own complex
-    directives:
+    That way you get the proper values even in the case of embedded whitespace. In addition, it allows you to
+    define your own complex directives:
 
         # Format: key "Real Name" option1 option2 option3
         CustomField lname "Last Name" 
@@ -360,50 +378,45 @@ FUNCTIONS
             }
         }
 
-    That way you could use an Apache style config file to setup a custom
-    form based application.
+    That way you could use an Apache style config file to setup a custom form based application.
 
   cmd_context(context => specification)
 
-    You use this command to change the current context of what you are
-    looking at. When you start, you are looking at the very top-level of the
-    config file. However, you may want to look at a specific virtual host or
+    You use this command to change the current context of what you are looking at. When you start, you are
+    looking at the very top-level of the config file. However, you may want to look at a specific virtual host or
     directory. You can do so with this command.
 
         my $vhost = $ac->cmd_context(VirtualHost => '10.1.1.2');
         my $server_name = $vhost->cmd_config('ServerName');
         my $doc_root    = $vhost->cmd_config('DocumentRoot');
 
-    You'll notice that the "cmd_context()" call returns an object will all
-    the same methods, but the data structure now starts from that point
-    down. The context has been altered so that you are looking at the
-    "<VirtualHost "10.1.1.2">". block. As such, any commands that you do
-    will affect that part of the configuration.
+    You'll notice that the `cmd_context()' call returns an object will all the same methods, but the data
+    structure now starts from that point down. The context has been altered so that you are looking at the `<
+    <VirtualHost "10.1.1.2"' >>. block. As such, any commands that you do will affect that part of the
+    configuration.
 
-    In some cases, you may have multiple definitions for a certain context
-    level. One example is "VirtualHost" blocks if you're using
-    "NameVirtualHosts". You have two options. First, you could cycle through
-    all of them in sequence:
+    In some cases, you may have multiple definitions for a certain context level. One example is `VirtualHost'
+    blocks if you're using `NameVirtualHosts'. You have two options. First, you could cycle through all of them
+    in sequence:
 
         for my $vhost ($ac->cmd_context(VirtualHost => '10.1.1.2')) {
             # ... do stuff ...
         }
 
-    However, you may not know what you're looking for. In this case, if you
-    just want to get the "keys" of all the "VirtualHost" definitions and
-    then iterate through all of them, you might do something like this:
+    However, you may not know what you're looking for. In this case, if you can iterate through all of them with
+    something like this:
 
-        my @vhkeys = $ac->cmd_context('VirtualHost');
-        for my $vhkey (@vhkeys) {
-            my $vhost = $ac->cmd_context(VirtualHost => $vhkey);
+        for my $vhost ($ac->cmd_context('VirtualHost')) {
+            # ... do stuff ...
         }
 
-    Note that this is the one situation where the "cmd_context()" function
-    does *not* return an object, but rather a list of string keys.
+    Since you didn't specify a specific block, the special var `_' will be set with the text tag for that block.
+    Printing it out will reveal which `VirtualHost' (or whatever) you're in:
 
-    Conversely, you may know *exactly* which one you're looking for. If so,
-    you can specify one additional "search" parameter. For example, if you
-    want the "superfoo" server, you could say:
+        print $vhost->cmd_config('_');  # "10.1.1.2"
+
+    Conversely, you may know *exactly* which one you're looking for. If so, you can specify one additional
+    "search" parameter. For example, if you want the `superfoo' server, you could say:
 
         my $sf = $ac->cmd_context(VirtualHost => '10.1.1.2',
                                   ServerName  => 'superfoo');
@@ -415,8 +428,7 @@ FUNCTIONS
             # ... more config options ...
         </VirtualHost>
 
-    you can easily access nested configurations as well. If you had a
-    configuration like this:
+    you can easily access nested configurations as well. If you had a configuration like this:
 
         <Location "/upload">
             SetHandler perl-script
@@ -429,8 +441,8 @@ FUNCTIONS
             </Limit>
         </Location>
 
-    And you wanted to find out what the valid users were who could access
-    this page, you would navigate it like so:
+    And you wanted to find out what the valid users were who could access this page, you would navigate it like
+    so:
 
         my $loc = $ac->cmd_context(Location => '/upload');
         my $lim = $loc->cmd_context('Limit');
@@ -441,47 +453,44 @@ FUNCTIONS
         my @users = $ac->cmd_context(Location => '/upload')
                        ->cmd_context(Limit => '')->cmd_config('require');
 
-    Since "cmd_context()" returns an object pointing to the next context,
-    you can chain calls together to get to a deeply nested level.
+    Since `cmd_context()' returns an object pointing to the next context, you can chain calls together to get to
+    a deeply nested level.
 
   dir_config()
 
-    This routine is provided for "mod_perl" compatibility. It allows you to
-    access configuration commands specified via the "PerlSetVar" directive.
-    So, assuming the above example, you could access the settings for
-    "MyUploadModule" like so:
+    This routine is provided for `mod_perl' compatibility. It allows you to access configuration commands
+    specified via the `PerlSetVar' directive. So, assuming the above example, you could access the settings for
+    `MyUploadModule' like so:
 
         my $upload = $ac->cmd_context(Location => '/upload');
 
         my $maxsize = $upload->dir_config('MyUploadModuleMaxsize');
         my $timeout = $upload->dir_config('MyUploadModuleTimeout');
 
-    The idea is to provide an interface which walks and talks roughly like
-    Apache actually would.
+    The idea is to provide an interface which walks and talks roughly like Apache actually would.
 
   data()
 
-    This returns the entire data structure under the current context
-    verabatim. So, you could get all the values for a "VirtualHost" with:
+    This returns the entire data structure under the current context verabatim. So, you could get all the values
+    for a `VirtualHost' with:
 
         my $vh = $ac->cmd_context(VirtualHost => '10.1.1.4');
         my %vhost = $vh->data;
 
-    If you specified "ignore_case", then all the keys will be lowercase;
-    otherwise, they will be in whatever case they are in the config file.
+    If you specified `ignore_case', then all the keys will be lowercase; otherwise, they will be in whatever case
+    they are in the config file.
 
   dump()
 
-    This returns a dump of the current data structure in string form. So for
-    debugging purposes you can dump the config with something like this:
+    This returns a dump of the current data structure in string form. So for debugging purposes you can dump the
+    config with something like this:
 
         warn "DUMP: ", $ac->dump, "\n";
 
   reread()
 
-    You can use this function to reread the configuration file. For example,
-    maybe you want your application to reread its config if it receives a
-    "SIGHUP":
+    You can use this function to reread the configuration file. For example, maybe you want your application to
+    reread its config if it receives a `SIGHUP':
 
         $SIG{HUP} = \&handler;
         sub handler {
@@ -492,18 +501,17 @@ FUNCTIONS
             }
         }
 
-    The above would handle a "SIGHUP" by rereading the config file.
+    The above would handle a `SIGHUP' by rereading the config file.
 
   write([file])
 
-    This writes the configuration out to disk. If no file is specified, then
-    the one passed to "read()" is used. This method is currently under
-    development and does not work. Patches welcome.
+    This writes the configuration out to disk. If no file is specified, then the one passed to `read()' is used.
+    This method is currently under development and does not work. Patches welcome.
 
   autoloaded calls
 
-    In addition to the above, you can also access values by calling a
-    function named for the config command directly:
+    In addition to the above, you can also access values by calling a function named for the config command
+    directly:
 
         my $server_name = $ac->cmd_config('ServerName');
 
@@ -511,38 +519,35 @@ FUNCTIONS
 
         my $server_name = $ac->server_name;
 
-    Underscores in the function name are taken as a place to put an
-    uppercase letter. So these are all equivalent:
+    Underscores in the function name are taken as a place to put an uppercase letter. So these are all
+    equivalent:
 
         my $doc_root = $ac->cmd_config('DocumentRoot');
         my $doc_root = $ac->DocumentRoot;   # looks silly
         my $doc_root = $ac->document_root;
 
-    Note, though, that the following would not work unless you had set the
-    "ignore_case" option:
+    Note, though, that the following would not work unless you had set the `ignore_case' option:
 
         my $doc_root = $ac->documentroot;   # won't work
 
-    This is because it will look for the directive "Documentroot", which
-    probably doesn't exist.
+    This is because it will look for the directive `Documentroot', which probably doesn't exist.
 
 ALIASES
-    When I initially wrote this module, I tried to follow the internal
-    Apache API pretty closely. However, for those unfamiliar with Apache
-    these method names probably make little sense. As such, the following
-    function aliases are provided
+    When I initially wrote this module, I tried to follow the internal Apache API pretty closely. However, for
+    those unfamiliar with Apache these method names probably make little sense. As such, the following function
+    aliases are provided
 
     directive
-        Same as "cmd_config()"
+        Same as `cmd_config()'
 
     directive_array
-        Same as "cmd_config_array()"
+        Same as `cmd_config_array()'
 
     directive_hash
-        Same as "cmd_config_hash()"
+        Same as `cmd_config_hash()'
 
     section
-        Same as "cmd_context()"
+        Same as `cmd_context()'
 
     So this code:
 
@@ -561,18 +566,10 @@ ALIASES
     These will always be supported so feel free to use them.
 
 NOTES
-    Currently "LogFormat" and any other directive with embedded quotes, even
-    if escaped, are not handled correctly. I know there is a fix for it but
-    I have a mental block and can't figure it out. Help!
+    Currently `LogFormat' and any other directive with embedded quotes, even if escaped, are not handled
+    correctly. I know there is a fix for it but I have a mental block and can't figure it out. Help!
 
-    This module does not mimic the behavior of a live Apache config. In
-    particular, there is no configuration "inheritance". This means that
-    subdirectories and virtual hosts do not inherit their defaults from the
-    upper levels of the configuration. This may or may not change in a
-    future version.
-
-    Currently, the order of context blocks is not maintained. So, if you
-    define two blocks:
+    Currently, the order of context blocks is not maintained. So, if you define two blocks:
 
         <Directory "/">
             Options +MultiViews
@@ -582,22 +579,18 @@ NOTES
             Options +ExecCGI
         </Directory>
 
-    There will be no way for you to tell the order in which these were
-    defined. Normally this should not matter, since the idea of a context
-    section is to create a logical entity. However, patches to overcome this
+    There will be no way for you to tell the order in which these were defined. Normally this should not matter,
+    since the idea of a context section is to create a logical entity. However, patches to overcome this
     limitation are welcomed.
 
-    This module has only been tested and used on UNIX platforms. Patches to
-    fix problems with other OSes are welcome.
+    This module has only been tested and used on UNIX platforms. It may or may not be broke elsewhere.
 
 VERSION
-    $Id: ConfigFile.pm,v 1.18 2001/09/18 18:31:23 nwiger Exp $
+    $Id: ConfigFile.pm,v 1.23 2003/10/09 18:24:41 nwiger Exp $
 
 AUTHOR
-    Copyright (c) 1999-2001, Nathan Wiger <nate@wiger.org>. All Rights
-    Reserved.
+    Copyright (c) 1999-2003, Nathan Wiger <nate@wiger.org>. All Rights Reserved.
 
-    This module is free software; you may copy this under the terms of the
-    GNU General Public License, or the Artistic License, copies of which
-    should have accompanied your Perl kit.
+    This module is free software; you may copy this under the terms of the GNU General Public License, or the
+    Artistic License, copies of which should have accompanied your Perl kit.
 

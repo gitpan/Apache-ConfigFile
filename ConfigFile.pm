@@ -1,5 +1,5 @@
 
-# Copyright (c) 1999-2001, Nathan Wiger <nate@wiger.org>
+# Copyright (c) 1999-2003, Nathan Wiger <nate@wiger.org>
 # Try "perldoc Apache/ConfigFile.pm" for documentation
 
 package Apache::ConfigFile;
@@ -104,17 +104,24 @@ use strict;
 use vars qw($VERSION $AUTOLOAD);
 
 # This is a modified VERSION that turns RCS "1.3" into "0.03"
-#$VERSION = do { my($r)=(q$Revision: 1.18 $=~/[\d\.]+/g); $r--; sprintf("%d.%02d", split '\.', $r)};
+#$VERSION = do { my($r)=(q$Revision: 1.23 $=~/[\d\.]+/g); $r--; sprintf("%d.%02d", split '\.', $r)};
 
 # Use regular version or else Changes and VERSION section don't match
-$VERSION = do { my @r=(q$Revision: 1.18 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r };
+$VERSION = do { my @r=(q$Revision: 1.23 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r };
+
+# stringify to name
+use overload '""'   => sub { $_[0]->_ },
+             '0+'   => sub { $_[0]->_ },
+             'bool' => sub { $_[0]->_ },
+             'eq'   => sub { $_[0]->_ eq $_[1] };
 
 # Default options
-my @OPT = qw(
-    ignore_case   0
-    fix_booleans  0
-    expand_vars   0
-    raise_error   0
+my %OPT = (
+    ignore_case  => 0,
+    fix_booleans => 0,
+    expand_vars  => 0,
+    raise_error  => 0,
+    root_directive => 'ServerRoot',
 );
 
 sub _error {
@@ -142,15 +149,19 @@ sub read {
     # handle different arg forms - singular and multi
     my %opt;
     if (@_ == 1) {
-        %opt = @OPT;
+        %opt = %OPT;
         $opt{file} = shift;
     } else {
         # hash of stuff
-        %opt = (@OPT, @_);
+        %opt = (%OPT, @_);
     }
 
     # just in case
     $opt{file} ||= "/usr/local/apache/conf/httpd.conf";
+
+    # allow explicit overriding of ServerRoot
+    $opt{"$opt{root_directive}"} = $opt{server_root}
+        if $opt{server_root};
 
     my $s = bless \%opt, $class;
 
@@ -159,24 +170,38 @@ sub read {
     return $s;
 }
 
-my $server_root = '';
 sub _include {
     # This recursively expands any "include" lines
     my $self = shift;
     my $file = shift;
+    my $root = $self->{root_directive};
 
     # add the server root unless it's a /full/path/name
-    $file = "$server_root/$file" if $file !~ m!^/! && $server_root;
+    $file = "$self->{$root}/$file" if $file !~ m!^/! && $self->{$root};
 
-    open(CONF, "<$file")
-        || croak("Cannot read '$file': $! (do you need to define ServerRoot?)");
-    chomp(my @conf = <CONF>);
-    close(CONF);
+    # this handles directory includes (i.e. will include all files in a directory)
+    my @conf = ();
+    my @files = ();
+    if (-d $file) {
+        opendir(CONFD, $file) || $self->_error("Cannot open directory '$file': $!");
+        @files = map { "$file/$_" } grep { -f "$file/$_" } readdir CONFD;
+        closedir(CONFD);
+    } else {
+        @files = ($file);
+    }
+
+    for my $cf (@files) {
+        open(CONF, "<$cf") 
+            || $self->_error("Cannot read '$cf': $! (did you define $root first?)");
+        push(@conf, <CONF>);
+        chomp(@conf);
+        close(CONF);
+    }
 
     # Check for any include lines - must do this inline!
     for (my $i=0; $i < @conf; $i++) {
-        if ($conf[$i] =~ /^(?:ServerRoot)\s+"?([^"]+)"?/i) {
-            $server_root = $1;
+        if ($conf[$i] =~ /^(?:$root)\s+"?([^"]+)"?/i) {
+            $self->{$root} = $1;
         } elsif ($conf[$i] =~ /^(?:Include|AccessConfig|ResourceConfig)\s+"?([^"]+)"?/i) {
             my @f = $self->_include($1);
             splice @conf, $i, 1, @f;    # stick it inline
@@ -194,13 +219,18 @@ sub reread {
     # the lines that make up our config file, in order
     my @conf = $self->_include($file);
 
+    local $^W = 0;      # damn string uninit parsing warnings
+
     # Create a hash and a parse level "pointer"
     my $conf = {};
     my $cmd_context = $conf;
     my @parselevel = ();
     my $line = 0;
 
-    foreach (@conf) {
+    my $base = $self->{inherit_from};   # inheritance (optional)
+	my $curr;
+
+    for (@conf) {
         $line++;
 
         # Strip newlines/comments
@@ -215,33 +245,48 @@ sub reread {
         # are visible for re-substitution
         if ($self->{expand_vars}) { 
             local($^W) = 0 ;
-            s#\$\{?(\w+)\}?#my $k =  $self->_fixcase($1);$conf->{$k}#eg;
+            s#\$\{?(\w+)\}?#my $k = $self->_fixcase($1); $conf->{$k}[0][0]#eg;
         }
 
         # This may be a <stuff> junk </stuff>, in which case we need
         # to nest our data struct!
         if (m#^\s*</(\S+)\s*>\s*$#) {
-            # match </close> - walk up
+            # match </close> - walk up one level
+            my $k = $self->_fixcase($1);
             $cmd_context = pop @parselevel;
+
+            # fill in base class attr if so requested
+            if ($base && $curr && $cmd_context->{$k}{$base}) {
+                for my $d (keys %{$cmd_context->{$k}{$base}}) {
+                    next unless exists $cmd_context->{$k}{$curr};
+					for (@{$cmd_context->{$k}{$curr}}) {
+						next if $_->{$d};	# don't overwrite
+                    	$_->{$d} = $cmd_context->{$k}{$base}[0]{$d};
+					}
+                }
+            }
+
             $self->_error("$file line $line: Mismatched closing tag '$1'") unless $cmd_context;
             next;
         } elsif (m#^\s*<(\S+)\s*(["']*)(.*)\2>\s*$#) {
             # create new sublevel in parsing
-            my $k = $self->_fixcase($1);
             push @parselevel, $cmd_context;
+            my $k = $self->_fixcase($1);	 # "VirtualHost" -> "virtualhost" (optional)
+			$curr = $3 || '';
 
-            # this is complicated - we have to maintain an array
-            # of substratum because of VirtualHost directives.
-            # as such we have to create another element of an
-            # array which is a hashref on the fly. whew!
-            #$cmd_context = $cmd_context->{$k}->{$3} = {}; # doesn't support VirtualHost
+            # This is complicated - we have to maintain an array of
+            # blocks because of VirtualHost directives (which can be
+            # redefined). As such we have to create another element of
+            # an array which is a hashref on the fly. Whew!
 
-            if ($cmd_context->{$k}{$3} && ref $cmd_context->{$k}{$3} eq 'ARRAY') {
-                my $len = scalar @{$cmd_context->{$k}{$3}};
-                $cmd_context = $cmd_context->{$k}{$3}[$len] = {};
+            if ($cmd_context->{$k}{$curr} && ref $cmd_context->{$k}{$curr} eq 'ARRAY') {
+                my $len = @{$cmd_context->{$k}{$curr}};                # get length to extend
+                $cmd_context = $cmd_context->{$k}{$curr}[$len] = {};   # manually so return ref
+                $cmd_context->{_} = [[$curr]];     # self-ref for deep nav
             } else {
-                $cmd_context->{$k}{$3} = [];
-                $cmd_context = $cmd_context->{$k}{$3}[0] = {};
+                $cmd_context->{$k}{$curr} = [];
+                $cmd_context = $cmd_context->{$k}{$curr}[0] = {};
+                $cmd_context->{_} = [[$curr]];     # self-ref for deep nav
             }
             next;
         }
@@ -249,24 +294,17 @@ sub reread {
         # Split up the key and the value. The @val regexp code dynamically
         # differentiates between "space strings" and array, values.
         my($key, $r) = m!^\s*\s*(\w+)\s*(?=\s+)(.*)!;             # split up key
-        my(@val)     = $r =~ m!\s+(?:"([^"]*[^\\])"|([^\s,]+))\n?!g;   # split up val
+        my @val      = $r =~ m!\s+(?:"([^"]*[^\\])"|([^\s,]+))\n?!g;   # split up val
         @val = grep { defined } @val;                             # lose undef values
 
         # Check for "on/off" or "true/false" or "yes/no"
-        if ($self->{fix_booleans}) {
+        if ($self->{fix_booleans} && @val) {
             $val[0] = 1 if ($val[0] =~ m/^(?:true|on|yes)$/i);
             $val[0] = 0 if ($val[0] =~ m/^(?:false|off|no)$/i);
         }
 
         # Make the key lowercase unless we're ignore_case
         $key = $self->_fixcase($key);
-
-        # Now, use eval to correctly assign variables automagically
-        # This implicitly takes care of syntax errors in the value
-        #eval { $cmd_context->{$key} = (@val > 1) ? [ @val ] : $val[0] };
-        #eval { push @{$cmd_context->{$key}}, [ @val ] };
-        #eval { $cmd_context->{$key} = [ @val ] };
-        #$self->_error("$file line $line: Bad config assignment: $@") if $@;
 
         # Must push or else can't handle repeating keys
         # It's up to the user to know how they should parse this if it matters
@@ -305,48 +343,50 @@ sub cmd_context {
     # maybe this exposes too much internal rep, but oh well...
 
     # redo our "pointer"
+    my $ptr;
+    my @ptr = ();
     if (ref $self->{cmd_context}{$dir} eq 'HASH') {
-        if (! exists $self->{cmd_context}{$dir}{$spec}) {
+        if (exists $self->{cmd_context}{$dir}{$spec}) {
+            $ptr = $self->{cmd_context}{$dir}{$spec};
+        } else {
             # With no $spec and no matching section (meaning that
             # it's not a "blank" <Limit> - like block), we return
-            # a list of the keys from the $dir hash, which will
-            # be the different blocks that can be used
-            return keys %{$self->{cmd_context}{$dir}};
+            # an array of objects, allowing us to loop thru w/ "for"
+            my @ret;
+            for my $spec (keys %{$self->{cmd_context}{$dir}}) {
+                my $copy = { %{$self} };
+                $copy->{cmd_context} = $copy->{cmd_context}{$dir}{$spec};
+                push @ret, bless($copy, __PACKAGE__);
+                return $ret[0] unless wantarray;    # will exit first iter
+            }
+            return @ret;
         }
     } else {
         # no matching hash
         return;
     }
 
-    my $ptr = $self->{cmd_context}{$dir}{$spec};
-    my @ptr = ();
-
     # maybe it's a nested hash/array/hash structure?
     if (ref $ptr eq 'ARRAY') {
         if (@_ == 1) {
-            #$ptr = $ptr->[shift()];
             @ptr = ($ptr->[$_[0]]);
         } elsif (@_ == 2) {
             my $ok = 0;
             my $k = $self->_fixcase(shift());
             my $v = shift;
             for my $p (@{$ptr}) {
-                #warn "p{$k} = $p->{$k} && $p->{$k}[0] &&  $p->{$k}[0][0]";
                 if (exists $p->{$k} && ref $p->{$k}[0] eq 'ARRAY'
                     && $p->{$k}[0][0] eq $v)
                 {
-                    #$ptr = $p;
                     push @ptr, $p;
                     $ok++;
                     last unless wantarray;
                 }
             }
-            #$self->_error("Could not find a config context matching that specification") unless $ok;
             return unless $ok;
         } elsif (@_) {
             $self->_error("Sorry, only one additional search param is supported to cmd_context");
         } else {
-            #$ptr = $ptr->[0];
             @ptr = @{$ptr};
         }
     } else {
@@ -359,15 +399,14 @@ sub cmd_context {
 
     # Now we peel off a new object that's a copy of our old
     # one (with the new {cmd_context}) making nav easier
-    # This is time-intensive so only do so if wantarray
     my @ret = ();
-    @ptr = ($ptr[0]) unless wantarray;
     for my $ptr (@ptr) {
         my $copy = { %{$self} };
         $copy->{cmd_context} = $ptr;
         push @ret, bless($copy, __PACKAGE__);
+        return $ret[0] unless wantarray;    # will exit first iter
     }
-    return wantarray ? @ret : $ret[0];
+    return @ret;
 }
 
 *directive_array = \&cmd_config_array;
@@ -385,9 +424,16 @@ sub cmd_config_array {
 
     # point to the value that was requested
     # return the entire current data struct when no args
-    my $ptr = {};
+    my $ptr;
     if ($dir) {
-        $ptr = $self->{cmd_context}{$dir};
+        my $ref = ref $self->{cmd_context};
+        if ($ref eq 'HASH') {
+            $ptr = $self->{cmd_context}{$dir};
+        } elsif ($ref eq 'ARRAY') {
+            for (@{$self->{cmd_context}}) {
+                $ptr = $_->{$dir} if $_->{$dir};
+            }
+        }
     } else {
         $ptr = $self->{cmd_context};
     }
@@ -420,9 +466,10 @@ sub cmd_config {
     # Use an iterator concept to go thru them in turn
     # Store the iterators in our data structure as well
     $self->{_iter}{$ptr} ||= 0;
-    if ($self->{_iter}{$ptr} >= @{$ptr}) {
+    my $len = @{$ptr};
+    if ($self->{_iter}{$ptr} >= $len) {
         $self->{_iter}{$ptr} = 0;
-        return;
+        return if $len > 1; # otherwise single declares return undef
     }
     if (defined(my $el = ${$ptr}[$self->{_iter}{$ptr}++])) {
         return wantarray ? @{$el} : ${$el}[0];
@@ -556,9 +603,27 @@ sub write {
     #close(CONF);
 }
 
-1;	# removing this == bad
+1;      # removing this == bad
 
 __END__
+
+=head1 UNSUPPORTED
+
+I am no longer supporting this module in any way, shape, or form,
+so it is truly provided "as-is". It has some edge-case bugs which
+will not be fixed. It will work on 95+% of Apache config files.
+
+I believe some alternative modules, including B<Apache::Admin::Config>
+and B<Config::ApacheFormat>, are being actively supported still,
+although this may or may not be true by the time you read this.
+
+In case you care, the main reason I wrote this was to support 
+Apache-B<like> config files as a general case. But it turns out the
+core C<httpd.conf> is rife with special cases, and is just plain a pain
+in the ass.
+
+If you would like to take over maintenance of this module, please
+contact me at C<nate@wiger.org>
 
 =head1 DESCRIPTION
 
@@ -728,6 +793,57 @@ kind cannot be reused.
 
 If set to 1, any type of error becomes fatal. Defaults to 0.
 
+=item inherit_from
+
+If set, then context blocks inherit from the specified default
+context. For example, say you have the blocks:
+
+    <Category kitchen>
+        Name "Soup Kitchen"
+        Email "soup@kitchen.com"
+        Access all
+    </Category>
+
+    <Category tomato_soup>
+        Name "Tomato Soup"
+    </Category>
+
+If you then specified:
+
+    ->read(..., inherit_from => 'kitchen');
+
+Then all those variables that are not seen in the C<tomato_soup>
+block would be filled in based on their values from the C<kitchen>
+block. So, C<tomato_soup> would inherit C<Email> and C<Access>
+from C<kitchen>, but would provide its own C<Name>.
+
+B<Note:> In order for this to work, the block providing the
+inherited items B<MUST> appear first, as shown above.
+
+=item root_directive
+
+If set this specifies a directive other than RootDirective for
+relative path resolutions.  For example:
+
+    ApplicationRoot /usr/local/etc
+
+    my $ac = Apache::ConfigFile->read(
+                     file => "/usr/local/etc/app.config",
+                     root_directive => 'ApplicationRoot'
+             );
+
+This will cause /usr/local/etc to be added to relative paths for
+includes, etc. With this additional behavior, the term ServerRoot, as
+used elsewhere in this document, comes to mean any directive that is
+specified via this option. Also note that the default value of this
+option is 'ServerRoot'.
+
+=item server_root
+
+This explicitly sets the ServerRoot for relative path resolutions for
+includes, etc. This option overrides any ServerRoot values found in the
+config file.
+
 =back
 
 =head2 cmd_config(directive)
@@ -760,18 +876,6 @@ Which should print:
 
     For error 404 we're using /errors/404.cgi
     For error 500 we're using /errors/500.cgi
-
-Now, if you just wanted to get the error codes that were being
-handled, you would still use a C<while> loop but in a scalar context:
-
-    while (my $code = $ac->cmd_config('ErrorDocument')) {
-        print "We're handling $code\n";
-    }
-
-Which should print:
-
-    We're handling 404
-    We're handling 500
 
 If you want more flexibility, read the following two functions.
 
@@ -885,18 +989,17 @@ could cycle through all of them in sequence:
     }
 
 However, you may not know what you're looking for. In this case,
-if you just want to get the "keys" of all the C<VirtualHost>
-definitions and then iterate through all of them, you might do
-something like this:
+if you can iterate through all of them with something like this:
 
-    my @vhkeys = $ac->cmd_context('VirtualHost');
-    for my $vhkey (@vhkeys) {
-        my $vhost = $ac->cmd_context(VirtualHost => $vhkey);
+    for my $vhost ($ac->cmd_context('VirtualHost')) {
+        # ... do stuff ...
     }
 
-Note that this is the one situation where the C<cmd_context()>
-function does I<not> return an object, but rather a list of
-string keys.
+Since you didn't specify a specific block, the special var C<_>
+will be set with the text tag for that block. Printing it out
+will reveal which C<VirtualHost> (or whatever) you're in:
+
+    print $vhost->cmd_config('_');  # "10.1.1.2"
 
 Conversely, you may know I<exactly> which one you're looking for.
 If so, you can specify one additional "search" parameter. For 
@@ -1077,12 +1180,6 @@ Currently C<LogFormat> and any other directive with embedded quotes,
 even if escaped, are not handled correctly. I know there is a fix for
 it but I have a mental block and can't figure it out. Help!
 
-This module does B<not> mimic the behavior of a live Apache config.
-In particular, there is no configuration "inheritance". This means
-that subdirectories and virtual hosts do not inherit their defaults
-from the upper levels of the configuration. This may or may not
-change in a future version.
-
 Currently, the order of context blocks is not maintained. So, if
 you define two blocks:
 
@@ -1099,16 +1196,16 @@ Normally this should not matter, since the idea of a context section is to
 create a logical entity. However, patches to overcome this limitation
 are welcomed.
 
-This module has only been tested and used on UNIX platforms. Patches
-to fix problems with other OSes are welcome.
+This module has only been tested and used on UNIX platforms. It may or
+may not be broke elsewhere.
 
 =head1 VERSION
 
-$Id: ConfigFile.pm,v 1.18 2001/09/18 18:31:23 nwiger Exp $
+$Id: ConfigFile.pm,v 1.23 2003/10/09 18:24:41 nwiger Exp $
 
 =head1 AUTHOR
 
-Copyright (c) 1999-2001, Nathan Wiger <nate@wiger.org>. All Rights
+Copyright (c) 1999-2003, Nathan Wiger <nate@wiger.org>. All Rights
 Reserved.
 
 This module is free software; you may copy this under the terms of
@@ -1116,4 +1213,3 @@ the GNU General Public License, or the Artistic License, copies of
 which should have accompanied your Perl kit.
 
 =cut
-
