@@ -1,5 +1,89 @@
-Revision history for Perl extension Apache::ConfigFile.
 
-0.01  Thu Sep  6 17:40:17 2001
-	- original version; created by h2xs 1.16
-
+RCS file: /home/nwiger/perlmod/lib/Apache/RCS/ConfigFile.pm,v
+Working file: /home/nwiger/perlmod/lib/Apache/ConfigFile.pm
+head: 1.18
+branch:
+locks: strict
+access list:
+symbolic names:
+keyword substitution: kv
+total revisions: 18;	selected revisions: 18
+description:
+Apache::ConfigFile
+----------------------------
+revision 1.18
+date: 2001/09/18 18:31:23;  author: nwiger;  state: Exp;  lines: +5 -2
+changed VERSION to standard CPAN one; is now at 1.17
+----------------------------
+revision 1.17
+date: 2001/09/17 18:03:37;  author: nwiger;  state: Exp;  lines: +45 -16
+fixed bug in cmd_config_hash and added documentation on it
+----------------------------
+revision 1.16
+date: 2001/09/14 23:54:06;  author: nwiger;  state: Exp;  lines: +217 -30
+many changes; added cmd_config_hash, cmd_config_array, changed
+data structure, changed cmd_config to an iterator function,
+and added documentation out the yin-yang
+----------------------------
+revision 1.15
+date: 2001/09/14 20:32:59;  author: nwiger;  state: Exp;  lines: +44 -20
+added functionality to iterate a list of the keys from a <Section>
+----------------------------
+revision 1.14
+date: 2001/09/06 23:57:54;  author: nwiger;  state: Exp;  lines: +47 -31
+uploading and being done with this version. egads!
+----------------------------
+revision 1.13
+date: 2001/09/06 23:23:54;  author: nwiger;  state: Exp;  lines: +93 -78
+added multiple support for cmd_context
+----------------------------
+revision 1.12
+date: 2001/09/06 22:49:10;  author: nwiger;  state: Exp;  lines: +276 -196
+I believe it works. I know that I'm getting tired of it!
+----------------------------
+revision 1.11
+date: 2001/09/06 19:58:16;  author: nwiger;  state: Exp;  lines: +173 -169
+I don't see any way around peeling off a new object from
+the cmd_context routine, dangit!
+----------------------------
+revision 1.10
+date: 2001/09/06 00:33:18;  author: nwiger;  state: Exp;  lines: +213 -40
+got _expand highjacked from do_dump ala ecp, but can't figure
+out how to write the config file...
+----------------------------
+revision 1.9
+date: 2001/09/05 21:10:22;  author: nwiger;  state: Exp;  lines: +279 -34
+yeesh! finally working on it and like everything it's getting *huge*
+----------------------------
+revision 1.8
+date: 2001/09/05 00:09:01;  author: nwiger;  state: Exp;  lines: +3 -3
+fixed a bug w/ case_sensitive in substitutions of previous vars
+----------------------------
+revision 1.7
+date: 2001/09/04 22:56:44;  author: nwiger;  state: Exp;  lines: +2 -3
+trying to get manual to work!
+----------------------------
+revision 1.6
+date: 2001/09/04 22:51:31;  author: nwiger;  state: Exp;  lines: +26 -48
+changed documentation - will this work?
+----------------------------
+revision 1.5
+date: 2001/08/02 18:28:54;  author: nwiger;  state: Exp;  lines: +9 -7
+Trying to deploy locally; if bug-free will upload to CPAN
+----------------------------
+revision 1.4
+date: 2001/08/02 18:21:17;  author: nwiger;  state: Exp;  lines: +10 -10
+fixed opts processing - oops!
+----------------------------
+revision 1.3
+date: 2001/08/02 18:11:01;  author: nwiger;  state: Exp;  lines: +134 -97
+getting ready to publish it on CPAN
+----------------------------
+revision 1.2
+date: 2001/08/02 00:33:34;  author: nwiger;  state: Exp;  lines: +173 -149
+seems to parse the httpd.conf file!!! all I had was a stoopid typo!!
+----------------------------
+revision 1.1
+date: 2001/06/19 17:56:11;  author: nwiger;  state: Exp;
+Initial revision
+=============================================================================

@@ -1,5 +1,5 @@
 NAME
-    Apache::ConfigFile - Parse an Apache style httpd.conf config file
+    Apache::ConfigFile - Parse an Apache style httpd.conf configuration file
 
 SYNOPSIS
         # 
@@ -15,10 +15,14 @@ SYNOPSIS
         my $doc_root = $ac->cmd_config('DocumentRoot');
 
         # Multiple values are returned as a list, meaning that you
-        # can directly assign them to an array or even a hash:
+        # can directly assign them to an array:
 
         my @perlmods = $ac->cmd_config('PerlModule');
-        my %ftypes   = $ac->cmd_config('FileTypeSuffix');
+
+        # And, you can use the cmd_config_hash() routine to get at
+        # multiple settings where the first is a type of "key":
+
+        my %ftypes   = $ac->cmd_config_hash('FileTypeSuffix');
 
         # Then, you can reset the context of the calls using the
         # cmd_context() method so that you are accessing the 
@@ -93,9 +97,9 @@ DESCRIPTION
     "cmd_context()" functions to access its information.
 
     By default, the config file is parsed more or less "verbatim", meaning
-    that directives are case-sensitive, variables are *not* interpolated,
-    and so forth. These features can be changed by options given to the
-    "read()" function (see below).
+    that directives are case-sensitive, variables are not interpolated, and
+    so forth. These features can be changed by options given to the "read()"
+    function (see below).
 
     The "read()" function is the constructor, which reads in a configuration
     file and returns an object with methods that can be used to access
@@ -114,7 +118,7 @@ DESCRIPTION
         Used to change the context of the commands you're accessing
 
     dir_config()
-        Used to access values set via the "PerlSetVar" command (for
+        Used to access values set via the "PerlSetVar" command (like
         "mod_perl")
 
     For more examples of standard Apache usage, you should read the the
@@ -243,14 +247,121 @@ FUNCTIONS
         my $server_name = $ac->cmd_config('ServerName');
         my $doc_root = $ac->cmd_config('DocumentRoot');
 
-    This is a straightforward function. You just give it the name of the
-    directive you wish to access and you get its value back. Multiple values
-    are returned as a list, meaning that you can directly assign them to an
-    array or even a hash (if the data structure is guaranteed to be
-    consistent enough):
+    This is a fairly straightforward function. You just give it the name of
+    the directive you wish to access and you get its value back. Each time
+    you call it, you will get the value for the next available instance of
+    that variable. If called in a scalar context, you will just get the
+    first value, assumed to be the "key".
 
-        my @perlmods = $ac->cmd_config('PerlModule');
-        my %ftypes   = $ac->cmd_config('FileTypeSuffix');
+    What this means is that if you have a config file like this:
+
+        ErrorDocument 404 /errors/404.cgi
+        ErrorDocument 500 /errors/500.cgi
+
+    To get each line you would use a "while" loop:
+
+        while (my @line = $ac->cmd_config('ErrorDocument')) {
+            print "For error $line[0] we're using $line[1]\n";
+        }
+
+    Which should print:
+
+        For error 404 we're using /errors/404.cgi
+        For error 500 we're using /errors/500.cgi
+
+    Now, if you just wanted to get the error codes that were being handled,
+    you would still use a "while" loop but in a scalar context:
+
+        while (my $code = $ac->cmd_config('ErrorDocument')) {
+            print "We're handling $code\n";
+        }
+
+    Which should print:
+
+        We're handling 404
+        We're handling 500
+
+    If you want more flexibility, read the following two functions.
+
+  cmd_config_array(directive)
+
+    This returns the entire data structure for a given directive as an array
+    of arrays. So, you could get all the "ErrorDocument" configs by saying:
+
+        my @errors = $ac->cmd_config_array('ErrorDocument');
+
+    Then, you would have to iterate over these yourself, since each element
+    is an array reference:
+
+        for my $e (@errors) {
+            print "Code is $e->[0] and script is $e->[1]\n";
+        }
+
+    Which should print:
+
+       Code is 404 and script is /errors/404.cgi 
+       Code is 500 and script is /errors/500.cgi 
+
+    Assuming the same configuration as above.
+
+  cmd_config_hash(directive)
+
+    This is perhaps the most useful form. It returns a set of key/value
+    pairs where the key is the first element and the value is the rest of
+    the line. This is great for handling "FileTypeSuffix" or "AddHandler"
+    lines, for example:
+
+        my %handler = $ac->cmd_config_hash('AddHandler');
+
+    This would return a hash where the keys would be the first field, such
+    as "cgi-script" or "server-parsed", and value is the remaining line as
+    an array reference.
+
+    As such, you could access a specific one as:
+
+        print "Suffixes for CGI scripts are: @{$handler{cgi-script}}\n";
+
+    Which should print out something like this:
+
+        Suffixes for CGI scripts are: .cgi .pl
+
+    Note that you had to derefence the value inside of a "@{}" since the
+    value is an array reference. This is so that you can get a list of
+    values reliably. For example:
+
+        my %handler = $ac->cmd_config_hash('AddHandler');
+        my @cgi_suffixes   = @{$handler{cgi-script}};
+        my @shtml_suffixed = @{$handler{server-parsed}};
+
+    That way you get the proper values even in the case of embedded
+    whitespace. In addition, it allows you to define your own complex
+    directives:
+
+        # Format: key "Real Name" option1 option2 option3
+        CustomField lname "Last Name" 
+        CustomField ctry  "Country" US CA MX JP Other
+
+    Then in your code:
+
+        my %custom_field = $ac->cmd_config_hash('CustomField');
+        while(my($key, $val) = each %custom_field) {
+            my $label = shift(@$val) || ucfirst($key);
+            # see if we have any options remaining
+            if (@$val) {
+                # have options; create select list
+                print qq($label: <select name="$key">\n");
+                for my $opt (@$val) {
+                    print qq(<option value="$opt">$opt</option>\n);
+                }
+                print qq(</select>\n); 
+            } else {
+                # no options; text field
+                print qq($label: <input name="$key" type="text type="text"">\n);
+            }
+        }
+
+    That way you could use an Apache style config file to setup a custom
+    form based application.
 
   cmd_context(context => specification)
 
@@ -266,8 +377,8 @@ FUNCTIONS
     You'll notice that the "cmd_context()" call returns an object will all
     the same methods, but the data structure now starts from that point
     down. The context has been altered so that you are looking at the
-    "VirtualHost 10.1.1.2". As such, any commands that you do will affect
-    that part of the configuration.
+    "<VirtualHost "10.1.1.2">". block. As such, any commands that you do
+    will affect that part of the configuration.
 
     In some cases, you may have multiple definitions for a certain context
     level. One example is "VirtualHost" blocks if you're using
@@ -278,9 +389,21 @@ FUNCTIONS
             # ... do stuff ...
         }
 
-    Or, if you know which one you want specifically, you can specify one
-    additional "search" parameter. For example, if you want the "superfoo"
-    server, you could say:
+    However, you may not know what you're looking for. In this case, if you
+    just want to get the "keys" of all the "VirtualHost" definitions and
+    then iterate through all of them, you might do something like this:
+
+        my @vhkeys = $ac->cmd_context('VirtualHost');
+        for my $vhkey (@vhkeys) {
+            my $vhost = $ac->cmd_context(VirtualHost => $vhkey);
+        }
+
+    Note that this is the one situation where the "cmd_context()" function
+    does *not* return an object, but rather a list of string keys.
+
+    Conversely, you may know *exactly* which one you're looking for. If so,
+    you can specify one additional "search" parameter. For example, if you
+    want the "superfoo" server, you could say:
 
         my $sf = $ac->cmd_context(VirtualHost => '10.1.1.2',
                                   ServerName  => 'superfoo');
@@ -292,8 +415,8 @@ FUNCTIONS
             # ... more config options ...
         </VirtualHost>
 
-    You can access nested configurations as well. If you had a configuration
-    like this:
+    you can easily access nested configurations as well. If you had a
+    configuration like this:
 
         <Location "/upload">
             SetHandler perl-script
@@ -316,7 +439,7 @@ FUNCTIONS
     Or, more succintly:
 
         my @users = $ac->cmd_context(Location => '/upload')
-                       ->cmd_context('Limit')->cmd_config('require');
+                       ->cmd_context(Limit => '')->cmd_config('require');
 
     Since "cmd_context()" returns an object pointing to the next context,
     you can chain calls together to get to a deeply nested level.
@@ -403,10 +526,44 @@ FUNCTIONS
     This is because it will look for the directive "Documentroot", which
     probably doesn't exist.
 
+ALIASES
+    When I initially wrote this module, I tried to follow the internal
+    Apache API pretty closely. However, for those unfamiliar with Apache
+    these method names probably make little sense. As such, the following
+    function aliases are provided
+
+    directive
+        Same as "cmd_config()"
+
+    directive_array
+        Same as "cmd_config_array()"
+
+    directive_hash
+        Same as "cmd_config_hash()"
+
+    section
+        Same as "cmd_context()"
+
+    So this code:
+
+        my $vh = $ac->cmd_context(VirtualHost => '10.1.1.2');
+        my $vhost_server_name = $vh->cmd_config('ServerName');
+        my $vhost_doc_root    = $vh->cmd_config('DocumentRoot');
+        my %error_handlers    = $ac->cmd_config_hash('ErrorDocument');
+
+    Could be rewritten as the following and work exactly the same:
+
+        my $vh = $ac->section(VirtualHost => '10.1.1.2');
+        my $vhost_server_name = $vh->directive('ServerName');
+        my $vhost_doc_root    = $vh->directive('DocumentRoot');
+        my %error_handlers    = $ac->directive_hash('ErrorDocument');
+
+    These will always be supported so feel free to use them.
+
 NOTES
     Currently "LogFormat" and any other directive with embedded quotes, even
     if escaped, are not handled correctly. I know there is a fix for it but
-    I have a mental block and can't figure it out. Help wanted.
+    I have a mental block and can't figure it out. Help!
 
     This module does not mimic the behavior of a live Apache config. In
     particular, there is no configuration "inheritance". This means that
@@ -414,14 +571,27 @@ NOTES
     upper levels of the configuration. This may or may not change in a
     future version.
 
+    Currently, the order of context blocks is not maintained. So, if you
+    define two blocks:
+
+        <Directory "/">
+            Options +MultiViews
+        </Directory>
+
+        <Directory "/var/apache/htdocs">
+            Options +ExecCGI
+        </Directory>
+
+    There will be no way for you to tell the order in which these were
+    defined. Normally this should not matter, since the idea of a context
+    section is to create a logical entity. However, patches to overcome this
+    limitation are welcomed.
+
     This module has only been tested and used on UNIX platforms. Patches to
     fix problems with other OSes are welcome.
 
-    There are currently no tests written for this module. Sorry, short on
-    time. Inventive (or even non-inventive!) tests welcome.
-
 VERSION
-    $Id: ConfigFile.pm,v 1.14 2001/09/06 23:57:54 nwiger Exp $
+    $Id: ConfigFile.pm,v 1.18 2001/09/18 18:31:23 nwiger Exp $
 
 AUTHOR
     Copyright (c) 1999-2001, Nathan Wiger <nate@wiger.org>. All Rights

@@ -6,7 +6,7 @@ package Apache::ConfigFile;
 
 =head1 NAME
 
-Apache::ConfigFile - Parse an Apache style httpd.conf config file
+Apache::ConfigFile - Parse an Apache style httpd.conf configuration file
 
 =head1 SYNOPSIS
 
@@ -23,10 +23,14 @@ Apache::ConfigFile - Parse an Apache style httpd.conf config file
     my $doc_root = $ac->cmd_config('DocumentRoot');
 
     # Multiple values are returned as a list, meaning that you
-    # can directly assign them to an array or even a hash:
+    # can directly assign them to an array:
 
     my @perlmods = $ac->cmd_config('PerlModule');
-    my %ftypes   = $ac->cmd_config('FileTypeSuffix');
+
+    # And, you can use the cmd_config_hash() routine to get at
+    # multiple settings where the first is a type of "key":
+
+    my %ftypes   = $ac->cmd_config_hash('FileTypeSuffix');
 
     # Then, you can reset the context of the calls using the
     # cmd_context() method so that you are accessing the 
@@ -100,7 +104,10 @@ use strict;
 use vars qw($VERSION $AUTOLOAD);
 
 # This is a modified VERSION that turns RCS "1.3" into "0.03"
-$VERSION = do { my($r)=(q$Revision: 1.14 $=~/[\d\.]+/g); $r--; sprintf("%d.%02d", split '\.', $r)};
+#$VERSION = do { my($r)=(q$Revision: 1.18 $=~/[\d\.]+/g); $r--; sprintf("%d.%02d", split '\.', $r)};
+
+# Use regular version or else Changes and VERSION section don't match
+$VERSION = do { my @r=(q$Revision: 1.18 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r };
 
 # Default options
 my @OPT = qw(
@@ -162,7 +169,7 @@ sub _include {
     $file = "$server_root/$file" if $file !~ m!^/! && $server_root;
 
     open(CONF, "<$file")
-        || $self->_error("Cannot read '$file': $! (did you define ServerRoot first?)");
+        || croak("Cannot read '$file': $! (do you need to define ServerRoot?)");
     chomp(my @conf = <CONF>);
     close(CONF);
 
@@ -242,7 +249,7 @@ sub reread {
         # Split up the key and the value. The @val regexp code dynamically
         # differentiates between "space strings" and array, values.
         my($key, $r) = m!^\s*\s*(\w+)\s*(?=\s+)(.*)!;             # split up key
-        my(@val)     = $r =~ m!\s+(?:"([^"]*)"|([^\s,]+))\n?!g;   # split up val
+        my(@val)     = $r =~ m!\s+(?:"([^"]*[^\\])"|([^\s,]+))\n?!g;   # split up val
         @val = grep { defined } @val;                             # lose undef values
 
         # Check for "on/off" or "true/false" or "yes/no"
@@ -259,11 +266,11 @@ sub reread {
         #eval { $cmd_context->{$key} = (@val > 1) ? [ @val ] : $val[0] };
         #eval { push @{$cmd_context->{$key}}, [ @val ] };
         #eval { $cmd_context->{$key} = [ @val ] };
+        #$self->_error("$file line $line: Bad config assignment: $@") if $@;
+
         # Must push or else can't handle repeating keys
         # It's up to the user to know how they should parse this if it matters
-        eval { push @{$cmd_context->{$key}}, @val };
-
-        $self->_error("$file line $line: Bad config assignment: $@") if $@;
+        push @{$cmd_context->{$key}}, [ @val ];
     }
 
     # Now setup our pointers in our data structure
@@ -274,13 +281,15 @@ sub reread {
     return wantarray ? %{$conf} : $conf;
 }
 
+*section = \&cmd_context;
 sub cmd_context {
     my $self = shift;
-    my $dir  = $self->_fixcase(shift) || return undef;
+    my $dir  = $self->_fixcase(shift) || return;
     my $spec = $self->_fixcase(shift) || '';    # can be empty (like <Limit>)
 
     # if no pattern reset to top level
-    return $self->{cmd_context} = $self->{config_data} unless $spec;
+    # had to remove this or else <Limit> does not work
+    #return $self->{cmd_context} = $self->{config_data} unless $spec;
 
     # and see if we have additional specifications, which will
     # indicate patterns to search for in deeper levels; for ex:
@@ -296,11 +305,19 @@ sub cmd_context {
     # maybe this exposes too much internal rep, but oh well...
 
     # redo our "pointer"
-    unless (ref $self->{cmd_context}{$dir} eq 'HASH'
-            && exists $self->{cmd_context}{$dir}{$spec}) {
-        #$self->_error("Could not find a config context matching that specification");
-        return undef;
+    if (ref $self->{cmd_context}{$dir} eq 'HASH') {
+        if (! exists $self->{cmd_context}{$dir}{$spec}) {
+            # With no $spec and no matching section (meaning that
+            # it's not a "blank" <Limit> - like block), we return
+            # a list of the keys from the $dir hash, which will
+            # be the different blocks that can be used
+            return keys %{$self->{cmd_context}{$dir}};
+        }
+    } else {
+        # no matching hash
+        return;
     }
+
     my $ptr = $self->{cmd_context}{$dir}{$spec};
     my @ptr = ();
 
@@ -314,7 +331,10 @@ sub cmd_context {
             my $k = $self->_fixcase(shift());
             my $v = shift;
             for my $p (@{$ptr}) {
-                if (exists $p->{$k} && $p->{$k}[0] eq $v) {
+                #warn "p{$k} = $p->{$k} && $p->{$k}[0] &&  $p->{$k}[0][0]";
+                if (exists $p->{$k} && ref $p->{$k}[0] eq 'ARRAY'
+                    && $p->{$k}[0][0] eq $v)
+                {
                     #$ptr = $p;
                     push @ptr, $p;
                     $ok++;
@@ -322,7 +342,7 @@ sub cmd_context {
                 }
             }
             #$self->_error("Could not find a config context matching that specification") unless $ok;
-            return undef unless $ok;
+            return unless $ok;
         } elsif (@_) {
             $self->_error("Sorry, only one additional search param is supported to cmd_context");
         } else {
@@ -350,7 +370,10 @@ sub cmd_context {
     return wantarray ? @ret : $ret[0];
 }
 
-sub cmd_config {
+*directive_array = \&cmd_config_array;
+sub cmd_config_array {
+
+    # General version of cmd_config that returns data structure appropriately
     my $self = shift;
     my $dir  = $self->_fixcase(shift);
 
@@ -370,7 +393,7 @@ sub cmd_config {
     }
 
     # return the value in the appropriate format
-    return undef unless $ptr;
+    return unless $ptr;
 
     if (ref $ptr eq 'HASH') {
         # If it is a hash, then this means it is a nested data
@@ -378,26 +401,67 @@ sub cmd_config {
         # Instead, we return a list of the keys so the user
         # can always count on getting a list back
         my @keys = keys %{$ptr};
-        return wantarray ? @keys : $keys[0];
+        @keys = map { [$_] } @keys;  # create proper data struct
+        return wantarray ? @keys : \@keys;
     } elsif (ref $ptr eq 'ARRAY') {
-        return wantarray ? @{$ptr}
-                         : ${$ptr}[0];
+        # Return the data struct (cmd_config will iterate)
+        return wantarray ? @{$ptr} : $ptr;
     } else {
         return $ptr;
     }
-    return undef;
+    return;
+}
+
+*directive = \&cmd_config;
+sub cmd_config {
+    my $self = shift;
+    my $ptr  = $self->cmd_config_array(@_) || return;
+
+    # Use an iterator concept to go thru them in turn
+    # Store the iterators in our data structure as well
+    $self->{_iter}{$ptr} ||= 0;
+    if ($self->{_iter}{$ptr} >= @{$ptr}) {
+        $self->{_iter}{$ptr} = 0;
+        return;
+    }
+    if (defined(my $el = ${$ptr}[$self->{_iter}{$ptr}++])) {
+        return wantarray ? @{$el} : ${$el}[0];
+    }
+    return;
+}
+
+*directive_hash = \&cmd_config_hash;
+sub cmd_config_hash {
+    # Wrapper around the above that returns the whole data struct
+    # as a set of key/value pairs, based on the first key as the key
+    my $self = shift;
+    my $ptr  = $self->cmd_config_array(@_) || return;
+
+    # We keep the data in an array so it comes out ordered
+    #my %ret = ();
+    my @ret = ();
+    for my $line (@{$ptr}) {
+        next unless ref $line eq 'ARRAY';
+        my @ary = @{ $line };
+        my $key = shift @ary;
+        #$ret{$key} = @ary ? \@ary : undef;
+        my $val = @ary ? \@ary : undef;
+        push @ret, $key, $val;
+    }
+    #return wantarray ? %ret : \%ret;
+    return wantarray ? @ret : { @ret };
 }
 
 sub dir_config {
     # special for mod_perl!
     my $self = shift;
-    my $dir  = $self->_fixcase(shift) || return undef;
+    my $dir  = $self->_fixcase(shift) || return;
     my %var = $self->perl_set_var;    # must autoload to handle ignore_case flag
     while(my($k,$v) = each %var) {
         # the value should always be a "scalar" by mod_perl rules
         return $v if $dir eq $self->_fixcase($k);
     }
-    return undef;
+    return;
 }
 
 *readconf = \&data;  # legacy support (dammit!)
@@ -506,7 +570,7 @@ the C<cmd_config()> and C<cmd_context()> functions to access its
 information.
 
 By default, the config file is parsed more or less "verbatim",
-meaning that directives are case-sensitive, variables are I<not>
+meaning that directives are case-sensitive, variables are not
 interpolated, and so forth. These features can be changed by
 options given to the C<read()> function (see below).
 
@@ -533,7 +597,7 @@ Used to change the context of the commands you're accessing
 
 =item dir_config()
 
-Used to access values set via the C<PerlSetVar> command (for C<mod_perl>)
+Used to access values set via the C<PerlSetVar> command (like C<mod_perl>)
 
 =back
 
@@ -675,14 +739,122 @@ Examples:
     my $server_name = $ac->cmd_config('ServerName');
     my $doc_root = $ac->cmd_config('DocumentRoot');
 
-This is a straightforward function. You just give it the name
-of the directive you wish to access and you get its value
-back. Multiple values are returned as a list, meaning that you
-can directly assign them to an array or even a hash (if the
-data structure is guaranteed to be consistent enough):
+This is a fairly straightforward function. You just give it the
+name of the directive you wish to access and you get its value back.
+Each time you call it, you will get the value for the next available
+instance of that variable. If called in a scalar context, you will
+just get the first value, assumed to be the "key".
 
-    my @perlmods = $ac->cmd_config('PerlModule');
-    my %ftypes   = $ac->cmd_config('FileTypeSuffix');
+What this means is that if you have a config file like this:
+
+    ErrorDocument 404 /errors/404.cgi
+    ErrorDocument 500 /errors/500.cgi
+
+To get each line you would use a C<while> loop:
+
+    while (my @line = $ac->cmd_config('ErrorDocument')) {
+        print "For error $line[0] we're using $line[1]\n";
+    }
+
+Which should print:
+
+    For error 404 we're using /errors/404.cgi
+    For error 500 we're using /errors/500.cgi
+
+Now, if you just wanted to get the error codes that were being
+handled, you would still use a C<while> loop but in a scalar context:
+
+    while (my $code = $ac->cmd_config('ErrorDocument')) {
+        print "We're handling $code\n";
+    }
+
+Which should print:
+
+    We're handling 404
+    We're handling 500
+
+If you want more flexibility, read the following two functions.
+
+=head2 cmd_config_array(directive)
+
+This returns the entire data structure for a given directive
+as an array of arrays. So, you could get all the C<ErrorDocument>
+configs by saying:
+
+    my @errors = $ac->cmd_config_array('ErrorDocument');
+
+Then, you would have to iterate over these yourself, since each
+element is an array reference:
+
+    for my $e (@errors) {
+        print "Code is $e->[0] and script is $e->[1]\n";
+    }
+
+Which should print:
+
+   Code is 404 and script is /errors/404.cgi 
+   Code is 500 and script is /errors/500.cgi 
+
+Assuming the same configuration as above.
+
+=head2 cmd_config_hash(directive)
+
+This is perhaps the most useful form. It returns a set of key/value
+pairs where the key is the first element and the value is the
+rest of the line. This is great for handling C<FileTypeSuffix>
+or C<AddHandler> lines, for example:
+
+    my %handler = $ac->cmd_config_hash('AddHandler');
+
+This would return a hash where the keys would be the first field,
+such as C<cgi-script> or C<server-parsed>, and value is the
+remaining line as an array reference.
+
+As such, you could access a specific one as:
+
+    print "Suffixes for CGI scripts are: @{$handler{cgi-script}}\n";
+
+Which should print out something like this:
+
+    Suffixes for CGI scripts are: .cgi .pl
+
+Note that you had to derefence the value inside of a C<@{}> since
+the value is an array reference. This is so that you can get a list
+of values reliably. For example:
+
+    my %handler = $ac->cmd_config_hash('AddHandler');
+    my @cgi_suffixes   = @{$handler{cgi-script}};
+    my @shtml_suffixed = @{$handler{server-parsed}};
+
+That way you get the proper values even in the case of embedded
+whitespace. In addition, it allows you to define your own complex
+directives:
+
+    # Format: key "Real Name" option1 option2 option3
+    CustomField lname "Last Name" 
+    CustomField ctry  "Country" US CA MX JP Other
+
+Then in your code:
+
+    my %custom_field = $ac->cmd_config_hash('CustomField');
+    while(my($key, $val) = each %custom_field) {
+        my $label = shift(@$val) || ucfirst($key);
+        # see if we have any options remaining
+        if (@$val) {
+            # have options; create select list
+            print qq($label: <select name="$key">\n");
+            for my $opt (@$val) {
+                print qq(<option value="$opt">$opt</option>\n);
+            }
+            print qq(</select>\n); 
+        } else {
+            # no options; text field
+            print qq($label: <input name="$key" type="text type="text"">\n);
+        }
+    }
+
+That way you could use an Apache style config file to setup a
+custom form based application.
 
 =head2 cmd_context(context => specification)
 
@@ -699,8 +871,9 @@ this command.
 You'll notice that the C<cmd_context()> call returns an
 object will all the same methods, but the data structure
 now starts from that point down. The context has been altered
-so that you are looking at the C<VirtualHost 10.1.1.2>. As such,
-any commands that you do will affect that part of the configuration.
+so that you are looking at the C<< <VirtualHost "10.1.1.2"> >>.
+block. As such, any commands that you do will affect that part
+of the configuration.
 
 In some cases, you may have multiple definitions for a certain
 context level. One example is C<VirtualHost> blocks if you're
@@ -711,9 +884,23 @@ could cycle through all of them in sequence:
         # ... do stuff ...
     }
 
-Or, if you know which one you want specifically, you can specify
-one additional "search" parameter. For example, if you want the
-C<superfoo> server, you could say:
+However, you may not know what you're looking for. In this case,
+if you just want to get the "keys" of all the C<VirtualHost>
+definitions and then iterate through all of them, you might do
+something like this:
+
+    my @vhkeys = $ac->cmd_context('VirtualHost');
+    for my $vhkey (@vhkeys) {
+        my $vhost = $ac->cmd_context(VirtualHost => $vhkey);
+    }
+
+Note that this is the one situation where the C<cmd_context()>
+function does I<not> return an object, but rather a list of
+string keys.
+
+Conversely, you may know I<exactly> which one you're looking for.
+If so, you can specify one additional "search" parameter. For 
+example, if you want the C<superfoo> server, you could say:
 
     my $sf = $ac->cmd_context(VirtualHost => '10.1.1.2',
                               ServerName  => 'superfoo');
@@ -726,7 +913,7 @@ like this:
         # ... more config options ...
     </VirtualHost>
 
-You can access nested configurations as well. If you had a
+you can easily access nested configurations as well. If you had a
 configuration like this:
 
     <Location "/upload">
@@ -750,7 +937,7 @@ access this page, you would navigate it like so:
 Or, more succintly:
 
     my @users = $ac->cmd_context(Location => '/upload')
-                   ->cmd_context('Limit')->cmd_config('require');
+                   ->cmd_context(Limit => '')->cmd_config('require');
 
 Since C<cmd_context()> returns an object pointing to the next
 context, you can chain calls together to get to a deeply nested
@@ -841,11 +1028,54 @@ set the C<ignore_case> option:
 This is because it will look for the directive C<Documentroot>,
 which probably doesn't exist.
 
+=head1 ALIASES
+
+When I initially wrote this module, I tried to follow the internal
+Apache API pretty closely. However, for those unfamiliar with
+Apache these method names probably make little sense. As such,
+the following function aliases are provided
+
+=over
+
+=item directive
+
+Same as C<cmd_config()>
+
+=item directive_array
+
+Same as C<cmd_config_array()>
+
+=item directive_hash
+
+Same as C<cmd_config_hash()>
+
+=item section
+
+Same as C<cmd_context()>
+
+=back
+
+So this code:
+
+    my $vh = $ac->cmd_context(VirtualHost => '10.1.1.2');
+    my $vhost_server_name = $vh->cmd_config('ServerName');
+    my $vhost_doc_root    = $vh->cmd_config('DocumentRoot');
+    my %error_handlers    = $ac->cmd_config_hash('ErrorDocument');
+
+Could be rewritten as the following and work B<exactly> the same:
+
+    my $vh = $ac->section(VirtualHost => '10.1.1.2');
+    my $vhost_server_name = $vh->directive('ServerName');
+    my $vhost_doc_root    = $vh->directive('DocumentRoot');
+    my %error_handlers    = $ac->directive_hash('ErrorDocument');
+
+These will always be supported so feel free to use them.
+
 =head1 NOTES
 
 Currently C<LogFormat> and any other directive with embedded quotes,
 even if escaped, are not handled correctly. I know there is a fix for
-it but I have a mental block and can't figure it out. Help wanted.
+it but I have a mental block and can't figure it out. Help!
 
 This module does B<not> mimic the behavior of a live Apache config.
 In particular, there is no configuration "inheritance". This means
@@ -853,15 +1083,28 @@ that subdirectories and virtual hosts do not inherit their defaults
 from the upper levels of the configuration. This may or may not
 change in a future version.
 
+Currently, the order of context blocks is not maintained. So, if
+you define two blocks:
+
+    <Directory "/">
+        Options +MultiViews
+    </Directory>
+
+    <Directory "/var/apache/htdocs">
+        Options +ExecCGI
+    </Directory>
+
+There will be no way for you to tell the order in which these were defined.
+Normally this should not matter, since the idea of a context section is to 
+create a logical entity. However, patches to overcome this limitation
+are welcomed.
+
 This module has only been tested and used on UNIX platforms. Patches
 to fix problems with other OSes are welcome.
 
-There are currently no tests written for this module. Sorry, short
-on time. Inventive (or even non-inventive!) tests welcome.
-
 =head1 VERSION
 
-$Id: ConfigFile.pm,v 1.14 2001/09/06 23:57:54 nwiger Exp $
+$Id: ConfigFile.pm,v 1.18 2001/09/18 18:31:23 nwiger Exp $
 
 =head1 AUTHOR
 
